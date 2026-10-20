@@ -2,7 +2,7 @@ import { HttpClient, HttpParams, HttpResponse } from "@angular/common/http";
 import { Inject, Injectable } from "@angular/core";
 import { BehaviorSubject, Observable, of } from "rxjs";
 import { filter, map, share, switchMap } from "rxjs/operators";
-import { FeatureID } from "./features";
+import { FeatureID, hasFeature } from "./features";
 import { PORTMASTER_HTTP_API_ENDPOINT, PortapiService } from './portapi.service';
 import { Feature, Pin, SPNStatus, UserProfile } from "./spn.types";
 
@@ -104,7 +104,7 @@ export class SPNService {
                   // console.log(feature, profile?.current_plan?.feature_ids)
                   return {
                     ...feature,
-                    enabled: feature.RequiredFeatureID === FeatureID.None || profile?.current_plan?.feature_ids?.includes(feature.RequiredFeatureID) || false,
+                    enabled: feature.RequiredFeatureID === FeatureID.None || hasFeature(profile?.current_plan?.feature_ids, feature.RequiredFeatureID),
                   }
                 })
               })

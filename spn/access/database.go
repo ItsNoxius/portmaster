@@ -58,7 +58,7 @@ func (user *UserRecord) MayUsePrioritySupport() bool {
 func (user *UserRecord) MayUse(featureID account.FeatureID) bool {
 	// Shadow this function in order to allow calls on a nil user.
 	if user == nil || user.User == nil {
-		return false
+		return account.IsLocalFeature(featureID)
 	}
 	return user.User.MayUse(featureID)
 }

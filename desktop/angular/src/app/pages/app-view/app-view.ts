@@ -26,7 +26,8 @@ import {
   SPNService,
   Setting,
   flattenProfileConfig,
-  setAppSetting
+  setAppSetting,
+  hasFeature,
 } from '@safing/portmaster-api';
 import { SfngDialogService } from '@safing/ui';
 import {
@@ -609,11 +610,9 @@ export class AppViewComponent implements OnInit, OnDestroy {
     this.spn.profile$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (profile) => {
         this.canUseHistory =
-          profile?.current_plan?.feature_ids?.includes(FeatureID.History) ||
-          false;
+          hasFeature(profile?.current_plan?.feature_ids, FeatureID.History);
         this.canViewBW =
-          profile?.current_plan?.feature_ids?.includes(FeatureID.Bandwidth) ||
-          false;
+          hasFeature(profile?.current_plan?.feature_ids, FeatureID.Bandwidth);
         this.canUseSPN =
           profile?.current_plan?.feature_ids?.includes(FeatureID.SPN) || false;
       },

@@ -3,7 +3,7 @@ import { TemplatePortal } from '@angular/cdk/portal';
 import { ChangeDetectionStrategy, ChangeDetectorRef, Component, DestroyRef, EventEmitter, HostBinding, Input, OnInit, Output, TemplateRef, ViewChild, ViewContainerRef } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { NgModel } from '@angular/forms';
-import { BaseSetting, ConfigService, ExpertiseLevel, ExpertiseLevelNumber, ExternalOptionHint, OptionType, PortapiService, QuickSetting, ReleaseLevel, SPNService, SettingValueType, UserProfile, WellKnown, applyQuickSetting } from '@safing/portmaster-api';
+import { BaseSetting, ConfigService, ExpertiseLevel, ExpertiseLevelNumber, ExternalOptionHint, OptionType, PortapiService, QuickSetting, ReleaseLevel, SPNService, SettingValueType, UserProfile, WellKnown, applyQuickSetting, hasFeature } from '@safing/portmaster-api';
 import { SfngDialogRef, SfngDialogService } from '@safing/ui';
 import { Button } from 'js-yaml-loader!../../../i18n/helptexts.yaml';
 import { Subject } from 'rxjs';
@@ -487,7 +487,7 @@ export class GenericSettingComponent<S extends BaseSetting<any, any>> implements
             value = [value];
           }
 
-          this._upgradeRequired = value.some(val => !(profile?.current_plan?.feature_ids || []).includes(val))
+          this._upgradeRequired = value.some(val => !hasFeature(profile?.current_plan?.feature_ids, val))
         }
 
         this.changeDetectorRef.markForCheck();

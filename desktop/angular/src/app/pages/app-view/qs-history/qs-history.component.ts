@@ -15,6 +15,7 @@ import {
   SPNService,
   Setting,
   getActualValue,
+  hasFeature,
 } from '@safing/portmaster-api';
 import { BehaviorSubject, Observable, map } from 'rxjs';
 import { share } from 'rxjs/operators';
@@ -31,7 +32,7 @@ export class QsHistoryComponent implements OnChanges {
     takeUntilDestroyed(),
     map((profile) => {
       return (
-        profile?.current_plan?.feature_ids?.includes(FeatureID.History) || false
+        hasFeature(profile?.current_plan?.feature_ids, FeatureID.History)
       );
     }),
     share({ connector: () => new BehaviorSubject<boolean>(false) })

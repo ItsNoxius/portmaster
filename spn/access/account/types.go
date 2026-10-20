@@ -80,6 +80,9 @@ func (u *User) MayUsePrioritySupport() bool {
 // Leave feature ID empty to check without feature.
 func (u *User) MayUse(featureID FeatureID) bool {
 	switch {
+	case IsLocalFeature(featureID):
+		// Runs entirely on this device, so no subscription is needed.
+		return true
 	case u == nil:
 		// We need a user, obviously.
 	case u.State != UserStateApproved:
@@ -126,6 +129,12 @@ const (
 	FeatureBWVis         = FeatureID("bw-vis")
 	FeatureVPNCompat     = FeatureID("vpn-compat")
 )
+
+// IsLocalFeature returns whether the feature runs entirely on this device and
+// is therefore available without a subscription.
+func IsLocalFeature(featureID FeatureID) bool {
+	return featureID == FeatureHistory || featureID == FeatureBWVis
+}
 
 // Plan describes an SPN subscription plan.
 type Plan struct {
