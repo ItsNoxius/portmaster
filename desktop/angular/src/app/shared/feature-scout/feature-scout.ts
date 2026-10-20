@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, ChangeDetectorRef, Component, DestroyRef, OnInit, inject } from "@angular/core";
 import { takeUntilDestroyed } from "@angular/core/rxjs-interop";
-import { BoolSetting, ConfigService, FeatureID, Netquery, SPNService, SPNStatus, UserProfile } from "@safing/portmaster-api";
+import { BoolSetting, ConfigService, FeatureID, Netquery, SPNService, SPNStatus, UserProfile, hasFeature } from "@safing/portmaster-api";
 import { catchError, of } from "rxjs";
 import { fadeInAnimation, fadeOutAnimation } from "../animations";
 import { CountryFlagModule } from 'src/app/shared/country-flag';
@@ -39,7 +39,7 @@ export class FeatureScoutComponent implements OnInit {
 
   /** Returns whether or not the current package has the Network History feature */
   get packageHasHistory() {
-    return this.profile?.current_plan?.feature_ids?.includes(FeatureID.History)
+    return hasFeature(this.profile?.current_plan?.feature_ids, FeatureID.History)
   }
 
   constructor(

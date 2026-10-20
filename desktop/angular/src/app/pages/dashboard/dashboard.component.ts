@@ -1,7 +1,7 @@
 import { KeyValue } from "@angular/common";
 import { AfterContentInit, AfterViewInit, ChangeDetectionStrategy, ChangeDetectorRef, Component, DestroyRef, ElementRef, OnInit, QueryList, TrackByFunction, ViewChild, ViewChildren, forwardRef, inject } from "@angular/core";
 import { takeUntilDestroyed } from "@angular/core/rxjs-interop";
-import { AppProfileService, BandwidthChartResult, ChartResult, Database, FeatureID, Netquery, PortapiService, SPNService, UserProfile, Verdict } from "@safing/portmaster-api";
+import { AppProfileService, BandwidthChartResult, ChartResult, Database, FeatureID, Netquery, PortapiService, SPNService, UserProfile, Verdict, hasFeature } from "@safing/portmaster-api";
 import { SfngDialogService, SfngTabGroupComponent } from "@safing/ui";
 import { Observable, catchError, filter, interval, map, repeat, retry, startWith, throwError } from "rxjs";
 import { ActionIndicatorService } from 'src/app/shared/action-indicator';
@@ -457,7 +457,7 @@ export class DashboardPageComponent implements OnInit, AfterViewInit {
       .subscribe({
         next: (profile) => {
           this.profile = profile || null;
-          this.featureBw = profile?.current_plan?.feature_ids?.includes(FeatureID.Bandwidth) || false;
+          this.featureBw = hasFeature(profile?.current_plan?.feature_ids, FeatureID.Bandwidth);
           this.featureSPN = profile?.current_plan?.feature_ids?.includes(FeatureID.SPN) || false;
 
           // force a full change-detection cylce now!
