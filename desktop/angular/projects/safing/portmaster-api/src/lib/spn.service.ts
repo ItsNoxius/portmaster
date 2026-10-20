@@ -1,10 +1,13 @@
 import { HttpClient, HttpParams, HttpResponse } from "@angular/common/http";
 import { Inject, Injectable } from "@angular/core";
-import { BehaviorSubject, Observable, of } from "rxjs";
+import { BehaviorSubject, Observable, of, timer } from "rxjs";
 import { filter, map, share, switchMap } from "rxjs/operators";
 import { FeatureID, hasFeature } from "./features";
 import { PORTMASTER_HTTP_API_ENDPOINT, PortapiService } from './portapi.service';
 import { Feature, Pin, SPNStatus, UserProfile } from "./spn.types";
+
+/** How long shared streams stay connected after their last subscriber left. */
+const keepAliveMs = 60_000;
 
 @Injectable()
 export class SPNService {
@@ -27,7 +30,10 @@ export class SPNService {
   ) {
     this.status$ = this.portapi.watch<SPNStatus>('runtime:spn/status', { ignoreDelete: true })
       .pipe(
-        share({ connector: () => new BehaviorSubject<any | null>(null) }),
+        // Stay connected for a while after the last subscriber leaves so
+        // views that are re-created (e.g. when switching tabs) get the
+        // current value immediately.
+        share({ connector: () => new BehaviorSubject<any | null>(null), resetOnRefCountZero: () => timer(keepAliveMs) }),
         filter(val => val !== null),
       )
 
@@ -40,7 +46,7 @@ export class SPNService {
 
           return of([] as Pin[]);
         }),
-        share({ connector: () => new BehaviorSubject<Pin[] | undefined>(undefined) }),
+        share({ connector: () => new BehaviorSubject<Pin[] | undefined>(undefined), resetOnRefCountZero: () => timer(keepAliveMs) }),
         filter(val => val !== undefined)
       ) as Observable<Pin[]>;
   }

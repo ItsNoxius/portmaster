@@ -1,6 +1,6 @@
 import { HttpClient, HttpHeaders, HttpParams } from '@angular/common/http';
 import { Inject, Injectable } from '@angular/core';
-import { BehaviorSubject, Observable } from 'rxjs';
+import { BehaviorSubject, Observable, ReplaySubject, timer } from 'rxjs';
 import { filter, finalize, map, mergeMap, share, take } from 'rxjs/operators';
 import {
   AppProfile,
@@ -199,8 +199,20 @@ export class AppProfileService {
    * Watch all application profiles
    */
   watchProfiles(): Observable<AppProfile[]> {
-    return this.portapi.watchAll<AppProfile>('core:profiles/');
+    return this.profiles$;
   }
+
+  /**
+   * All application profiles, shared between subscribers. The watch stays
+   * connected for a minute after the last subscriber left so views that are
+   * re-created get the current list immediately.
+   */
+  private readonly profiles$ = this.portapi.watchAll<AppProfile>('core:profiles/').pipe(
+    share({
+      connector: () => new ReplaySubject<AppProfile[]>(1),
+      resetOnRefCountZero: () => timer(60_000),
+    })
+  );
 
   watchLayeredProfile(source: string, id: string): Observable<LayeredProfile>;
 

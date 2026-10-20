@@ -249,6 +249,9 @@ export class SfngNetqueryViewer implements OnInit, OnDestroy, AfterViewInit {
   /** @private When the last search finished, used to debounce searches. Starts at zero so the first search runs right away. */
   private lastSearchTime = 0;
 
+  /** @private The query of the results currently shown, used to detect background revalidations. */
+  private shownQuery: Query | null = null;
+
   /** @private Used to refresh the "Last reload xxx ago" message */
   private lastReloadTickerForceUpdate$ = new Subject<void>();
   lastReloadTicker = merge(
@@ -646,6 +649,25 @@ export class SfngNetqueryViewer implements OnInit, OnDestroy, AfterViewInit {
         }),
       )
       .subscribe(result => {
+        // A revalidated result of the same search only updates the counts. The
+        // current page and the charts refresh themselves through their own
+        // cached queries, so the shown results stay in place.
+        const isRevalidation = result.query === this.shownQuery;
+        this.shownQuery = result.query;
+
+        this.totalConnCount = result.response?.totalConnCount[0]?.totalConnCount || 0;
+        this.totalResultCount = result.response.totalCount;
+        this.lastReload = new Date();
+        this.lastSearchTime = this.lastReload.getTime();
+        this.lastReloadTickerForceUpdate$.next();
+        this.loading = false;
+
+        if (isRevalidation) {
+          this.paginator.updateTotal(result.response.totalCount);
+          this.cdr.markForCheck();
+          return;
+        }
+
         this.paginator.pageLoading$
           .pipe(
             skip(1),
@@ -677,8 +699,6 @@ export class SfngNetqueryViewer implements OnInit, OnDestroy, AfterViewInit {
         // reset the paginator with the new total result count and
         // open the first page.
         this.paginator.reset(result.response.totalCount);
-        this.totalConnCount = result.response?.totalConnCount[0]?.totalConnCount || 0;
-        this.totalResultCount = result.response.totalCount;
 
         // update the current URL to include the new search
         // query and make sure we skip the parameter-update emitted by
@@ -703,10 +723,6 @@ export class SfngNetqueryViewer implements OnInit, OnDestroy, AfterViewInit {
         }
         this.skipUrlUpdate = false;
 
-        this.lastReload = new Date();
-        this.lastSearchTime = this.lastReload.getTime();
-        this.lastReloadTickerForceUpdate$.next();
-        this.loading = false;
         this.cdr.markForCheck();
       })
 

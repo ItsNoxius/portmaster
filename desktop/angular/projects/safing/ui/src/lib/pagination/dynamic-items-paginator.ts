@@ -36,6 +36,11 @@ export class DynamicItemsPaginator<T> implements Pagination<T> {
     this.openPage(1);
   }
 
+  /** Updates the total without reloading the current page. */
+  updateTotal(newTotal: number) {
+    this._total = Math.ceil(newTotal / this.pageSize);
+  }
+
   /** Clear resets the current total and emits an empty item set. */
   clear() {
     this._total = 0;
