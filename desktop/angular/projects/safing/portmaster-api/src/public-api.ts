@@ -15,6 +15,7 @@ export * from './lib/netquery.service';
 export * from './lib/network.types';
 export * from './lib/portapi.service';
 export * from './lib/portapi.types';
+export * from './lib/query-cache';
 export * from './lib/spn.service';
 export * from './lib/spn.types';
 export * from './lib/utils';

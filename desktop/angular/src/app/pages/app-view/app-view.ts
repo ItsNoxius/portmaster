@@ -14,7 +14,6 @@ import {
   AppProfileService,
   Condition,
   ConfigService,
-  Database,
   DebugAPI,
   ExpertiseLevel,
   FeatureID,
@@ -434,30 +433,7 @@ export class AppViewComponent implements OnInit, OnDestroy {
           }
 
           this.netquery
-            .query(
-              {
-                select: [
-                  {
-                    $min: {
-                      field: 'started',
-                      as: 'first_connection',
-                    },
-                  },
-                  {
-                    $count: {
-                      field: '*',
-                      as: 'totalCount',
-                    },
-                  },
-                ],
-                groupBy: ['profile'],
-                query: {
-                  profile: `${profile[0].Source}/${profile[0].ID}`,
-                },
-                databases: [Database.History],
-              },
-              'app-view-get-first-connection'
-            )
+            .getProfileHistorySummary(key)
             .subscribe((result) => {
               if (result.length > 0) {
                 this.historyAvailableSince = new Date(

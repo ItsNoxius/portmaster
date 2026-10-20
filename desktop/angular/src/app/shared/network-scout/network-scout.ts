@@ -5,6 +5,7 @@ import { Subject, combineLatest, debounceTime, filter, finalize, interval, retry
 import { UIStateService } from "src/app/services";
 import { fadeInListAnimation } from "../animations";
 import { ExpertiseService } from './../expertise/expertise.service';
+import { prefetchAppView } from "../netquery/viewer-query";
 
 interface _Pin extends Pin {
   count: number;
@@ -112,6 +113,9 @@ export class NetworkScoutComponent implements OnInit {
   /** TrackByFunction for the exit pins */
   trackPin: TrackByFunction<_Pin> = (_, pin) => pin.ID;
 
+  /** Pending prefetch, delayed so skimming over the list does not flood the API */
+  private prefetchTimeout: ReturnType<typeof setTimeout> | null = null;
+
   constructor(
     private netquery: Netquery,
     private spn: SPNService,
@@ -120,6 +124,22 @@ export class NetworkScoutComponent implements OnInit {
     private expertise: ExpertiseService,
     private cdr: ChangeDetectorRef,
   ) { }
+
+  /** Prefetches the data of the app view when the user hovers an app. */
+  prefetchApp(profileKey: string) {
+    this.cancelPrefetch();
+    this.prefetchTimeout = setTimeout(() => {
+      this.prefetchTimeout = null;
+      prefetchAppView(this.netquery, profileKey, this.expertise.currentLevel);
+    }, 100);
+  }
+
+  cancelPrefetch() {
+    if (this.prefetchTimeout !== null) {
+      clearTimeout(this.prefetchTimeout);
+      this.prefetchTimeout = null;
+    }
+  }
 
   searchProfiles(term: string) {
     term = term.trim();
@@ -196,6 +216,8 @@ export class NetworkScoutComponent implements OnInit {
   }
 
   ngOnInit(): void {
+    this.destroyRef.onDestroy(() => this.cancelPrefetch());
+
     this.stateService.uiState()
       .pipe(take(1))
       .subscribe(state => {

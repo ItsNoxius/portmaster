@@ -1,11 +1,12 @@
 import { HttpClient, HttpParams, HttpResponse } from "@angular/common/http";
 import { Inject, Injectable } from "@angular/core";
 import { Observable, forkJoin, of } from "rxjs";
-import { catchError, map, mergeMap } from "rxjs/operators";
+import { catchError, map, mergeMap, tap } from "rxjs/operators";
 import { AppProfileService } from "./app-profile.service";
 import { AppProfile } from "./app-profile.types";
 import { DNSContext, IPScope, Reason, SplitTunContext, TLSContext, TunnelContext, Verdict } from "./network.types";
 import { PORTMASTER_HTTP_API_ENDPOINT, PortapiService } from "./portapi.service";
+import { cachedQuery, prefetchQuery, queryClient } from "./query-cache";
 import { Container } from "postcss";
 
 export interface FieldSelect {
@@ -235,15 +236,43 @@ export class Netquery {
     @Inject(PORTMASTER_HTTP_API_ENDPOINT) private httpAPI: string,
   ) { }
 
+  /**
+   * Requests are cached by endpoint and body. Cached results are emitted
+   * immediately and revalidated in the background (see cachedQuery).
+   */
+  private cachedPost<T>(path: string, body: unknown, params?: HttpParams): Observable<T> {
+    return cachedQuery(['netquery', path, body], () => this.post<T>(path, body, params));
+  }
+
+  /** Loads the request into the cache, e.g. before navigating to a view that needs it. */
+  private prefetchPost(path: string, body: unknown): Promise<void> {
+    return prefetchQuery(['netquery', path, body], () => this.post(path, body));
+  }
+
+  private post<T>(path: string, body: unknown, params?: HttpParams): Observable<T> {
+    return this.http.post<T>(`${this.httpAPI}/v1/netquery/${path}`, body, { params });
+  }
+
+  /** Marks all cached netquery results as stale and refetches the ones in use. */
+  invalidate(): Promise<void> {
+    return queryClient.invalidateQueries({ queryKey: ['netquery'] });
+  }
+
   query(query: Query, origin: string): Observable<QueryResult[]> {
-    return this.http.post<{ results: QueryResult[] }>(`${this.httpAPI}/v1/netquery/query`, query, {
-      params: new HttpParams().set("origin", origin)
-    })
+    return this.cachedPost<{ results: QueryResult[] }>('query', query, new HttpParams().set("origin", origin))
       .pipe(map(res => res.results || []));
   }
 
+  prefetchQuery(query: Query): Promise<void> {
+    return this.prefetchPost('query', query);
+  }
+
   batch<T extends BatchRequest>(queries: T): Observable<BatchResponse<T>> {
-    return this.http.post<BatchResponse<T>>(`${this.httpAPI}/v1/netquery/query/batch`, queries)
+    return this.cachedPost<BatchResponse<T>>('query/batch', queries);
+  }
+
+  prefetchBatch(queries: BatchRequest): Promise<void> {
+    return this.prefetchPost('query/batch', queries);
   }
 
   cleanProfileHistory(profileIDs: string | string[]): Observable<HttpResponse<any>> {
@@ -257,6 +286,7 @@ export class Netquery {
         reportProgress: false,
       }
     )
+      .pipe(tap(() => this.invalidate()))
   }
 
   profileBandwidthChart(profile?: string[], interval?: number): Observable<{ [profile: string]: ProfileBandwidthChartResult[] }> {
@@ -284,7 +314,7 @@ export class Netquery {
   }
 
   bandwidthChart<K extends ConnKeys>(query: Condition, groupBy?: K[], interval?: number): Observable<BandwidthChartResult<K>[]> {
-    return this.http.post<{ results: BandwidthChartResult<K>[] }>(`${this.httpAPI}/v1/netquery/charts/bandwidth`, {
+    return this.cachedPost<{ results: BandwidthChartResult<K>[] }>('charts/bandwidth', {
       interval,
       groupBy,
       query,
@@ -292,6 +322,10 @@ export class Netquery {
       .pipe(
         map(response => response.results),
       )
+  }
+
+  prefetchBandwidthChart<K extends ConnKeys>(query: Condition, groupBy?: K[], interval?: number): Promise<void> {
+    return this.prefetchPost('charts/bandwidth', { interval, groupBy, query });
   }
 
   connectionBandwidthChart(connIds: string[], interval?: number): Observable<{ [connId: string]: ConnectionBandwidthChartResult[] }> {
@@ -318,8 +352,12 @@ export class Netquery {
       )
   }
 
+  prefetchActiveConnectionChart(cond: Condition, textSearch?: TextSearch): Promise<void> {
+    return this.prefetchPost('charts/connection-active', { query: cond, textSearch });
+  }
+
   activeConnectionChart(cond: Condition, textSearch?: TextSearch): Observable<ChartResult[]> {
-    return this.http.post<{ results: ChartResult[] }>(`${this.httpAPI}/v1/netquery/charts/connection-active`, {
+    return this.cachedPost<{ results: ChartResult[] }>('charts/connection-active', {
       query: cond,
       textSearch,
     })
@@ -384,10 +422,45 @@ export class Netquery {
       )
   }
 
-  getProfileStats(query?: Condition): Observable<IProfileStats[]> {
-    let profileCache = new Map<string, AppProfile>();
+  /** Returns the time of the first connection and the number of connections in the history of a profile. */
+  getProfileHistorySummary(profileKey: string): Observable<QueryResult[]> {
+    return this.query(this.profileHistorySummaryQuery(profileKey), 'app-view-get-first-connection');
+  }
 
-    return this.batch({
+  prefetchProfileHistorySummary(profileKey: string): Promise<void> {
+    return this.prefetchQuery(this.profileHistorySummaryQuery(profileKey));
+  }
+
+  private profileHistorySummaryQuery(profileKey: string): Query {
+    return {
+      select: [
+        {
+          $min: {
+            field: 'started',
+            as: 'first_connection',
+          },
+        },
+        {
+          $count: {
+            field: '*',
+            as: 'totalCount',
+          },
+        },
+      ],
+      groupBy: ['profile'],
+      query: {
+        profile: profileKey,
+      },
+      databases: [Database.History],
+    };
+  }
+
+  prefetchProfileStats(query?: Condition): Promise<void> {
+    return this.prefetchBatch(this.profileStatsBatch(query));
+  }
+
+  private profileStatsBatch(query?: Condition) {
+    return {
       verdicts: {
         select: [
           'profile',
@@ -432,7 +505,13 @@ export class Netquery {
           },
         },
       }
-    }).pipe(
+    } satisfies BatchRequest;
+  }
+
+  getProfileStats(query?: Condition): Observable<IProfileStats[]> {
+    let profileCache = new Map<string, AppProfile>();
+
+    return this.batch(this.profileStatsBatch(query)).pipe(
       map(result => {
         let statsMap = new Map<string, IProfileStats>();
 

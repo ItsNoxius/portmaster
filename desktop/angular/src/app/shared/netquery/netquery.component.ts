@@ -5,7 +5,7 @@ import { takeUntilDestroyed } from "@angular/core/rxjs-interop";
 import { ActivatedRoute, Router } from "@angular/router";
 import { BandwidthChartResult, ChartResult, Condition, Database, FeatureID, GreaterOrEqual, IPScope, LessOrEqual, Netquery, NetqueryConnection, OrderBy, Pin, PossilbeValue, Query, QueryResult, SPNService, Select, Verdict, hasFeature } from "@safing/portmaster-api";
 import { Datasource, DynamicItemsPaginator, SelectOption } from "@safing/ui";
-import { BehaviorSubject, Observable, Subject, combineLatest, forkJoin, interval, merge, of, timer } from "rxjs";
+import { BehaviorSubject, Observable, Subject, combineLatest, interval, merge, of, timer } from "rxjs";
 import { catchError, filter, map, share, skip, startWith, switchMap, take, takeUntil } from "rxjs/operators";
 import { ActionIndicatorService } from "../action-indicator";
 import { ExpertiseService } from "../expertise";
@@ -16,6 +16,7 @@ import { SfngSearchbarFields } from "./searchbar";
 import { SfngTagbarValue } from "./tag-bar";
 import { Parser } from "./textql";
 import { connectionFieldTranslation, mergeConditions } from "./utils";
+import { buildViewerQuery, viewerBandwidthInterval, viewerBaseCondition, viewerCountsBatch, viewerPageSize } from "./viewer-query";
 import { DefaultBandwidthChartConfig } from "./line-chart/line-chart";
 import { INTEGRATION_SERVICE } from "src/app/integration";
 
@@ -245,6 +246,9 @@ export class SfngNetqueryViewer implements OnInit, OnDestroy, AfterViewInit {
   /** @private The last time the connections were loaded */
   lastReload: Date = new Date();
 
+  /** @private When the last search finished, used to debounce searches. Starts at zero so the first search runs right away. */
+  private lastSearchTime = 0;
+
   /** @private Used to refresh the "Last reload xxx ago" message */
   private lastReloadTickerForceUpdate$ = new Subject<void>();
   lastReloadTicker = merge(
@@ -296,7 +300,7 @@ export class SfngNetqueryViewer implements OnInit, OnDestroy, AfterViewInit {
         const remainingSeconds = intervalSeconds - elapsedSeconds;
 
         if (remainingSeconds <= 0) {
-          this.performSearch(); // Trigger reload when time is up
+          this.reload(); // Trigger reload when time is up
           return 0;
         }
         return remainingSeconds;
@@ -595,7 +599,7 @@ export class SfngNetqueryViewer implements OnInit, OnDestroy, AfterViewInit {
     }
 
     // create a new paginator that will use the datasource from above.
-    this.paginator = new DynamicItemsPaginator(dataSource)
+    this.paginator = new DynamicItemsPaginator(dataSource, viewerPageSize)
 
     // subscribe to the search observable that emits a value each time we want to perform
     // a new query.
@@ -603,34 +607,20 @@ export class SfngNetqueryViewer implements OnInit, OnDestroy, AfterViewInit {
     // with queries while the user is still configuring their filters.
     this.search$
       .pipe(        
-        this.adaptiveDebounce(1000, () => this.lastReload.getTime()),
+        this.adaptiveDebounce(1000, () => this.lastSearchTime),
         switchMap(() => {
+          // Cached results are emitted synchronously, so the loading state is
+          // only rendered if nothing is cached for this query yet. The previous
+          // charts stay visible until the new ones arrive.
           this.loading = true;
-          this.connectionChartData = [];
-          this.bwChartData = [];
-
-          this.cdr.detectChanges();
 
           const query = this.getQuery();
 
           // we only load the overall connection chart, the total connection count for the filter result
           // as well the the total connection count without any filters here. The actual results are
           // loaded by the DynamicItemsPaginator using the "view" function defined above.
-          return forkJoin({
-            query: of(query),
-            response: this.netquery.batch({
-              totalCount: {
-                ...query,
-                select: { $count: { field: '*', as: 'totalCount' } },
-              },
-
-              totalConnCount: {
-                ...query,
-                select: {
-                  $count: { field: '*', as: 'totalConnCount' }
-                },
-              }
-            })
+          // This emits cached counts first and again once they are revalidated.
+          return this.netquery.batch(viewerCountsBatch(query))
               .pipe(
                 map(response => {
                   // the the correct resulsts here which depend on whether or not
@@ -645,12 +635,14 @@ export class SfngNetqueryViewer implements OnInit, OnDestroy, AfterViewInit {
                   }
 
                   return {
-                    totalCount,
-                    totalConnCount: response?.totalConnCount || [],
+                    query,
+                    response: {
+                      totalCount,
+                      totalConnCount: response?.totalConnCount || [],
+                    },
                   }
                 })
-              ),
-          })
+              )
         }),
       )
       .subscribe(result => {
@@ -660,7 +652,7 @@ export class SfngNetqueryViewer implements OnInit, OnDestroy, AfterViewInit {
             takeUntil(this.search$), // skip loading the chart if the user trigger a subsequent search
             filter(loading => !loading),
             take(1),
-            switchMap(() => forkJoin({
+            switchMap(() => combineLatest({
               connectionChart: this.netquery.activeConnectionChart(result.query.query!)
                 .pipe(
                   catchError(err => {
@@ -672,7 +664,7 @@ export class SfngNetqueryViewer implements OnInit, OnDestroy, AfterViewInit {
                     return of([] as ChartResult[]);
                   }),
                 ),
-              bwChart: this.netquery.bandwidthChart(result.query.query!, [], 60)
+              bwChart: this.netquery.bandwidthChart(result.query.query!, [], viewerBandwidthInterval)
             })),
           )
           .subscribe(chart => {
@@ -712,6 +704,7 @@ export class SfngNetqueryViewer implements OnInit, OnDestroy, AfterViewInit {
         this.skipUrlUpdate = false;
 
         this.lastReload = new Date();
+        this.lastSearchTime = this.lastReload.getTime();
         this.lastReloadTickerForceUpdate$.next();
         this.loading = false;
         this.cdr.markForCheck();
@@ -1077,6 +1070,12 @@ export class SfngNetqueryViewer implements OnInit, OnDestroy, AfterViewInit {
     this.performSearch();
   }
 
+  /** @private Refetches the current results, bypassing cached data that is still fresh. */
+  reload() {
+    this.netquery.invalidate();
+    this.performSearch();
+  }
+
   /** @private Query the portmaster service for connections matching the current settings */
   performSearch() {
     this.loading = true;    
@@ -1167,11 +1166,7 @@ export class SfngNetqueryViewer implements OnInit, OnDestroy, AfterViewInit {
       }
     })
 
-    if (this.expertise.currentLevel !== 'developer') {
-      query["internal"] = {
-        $eq: false,
-      }
-    }
+    query = { ...query, ...viewerBaseCondition(this.expertise.currentLevel) };
 
     if (this.textSearch !== '') {
       textSearch = {
@@ -1210,30 +1205,15 @@ export class SfngNetqueryViewer implements OnInit, OnDestroy, AfterViewInit {
       ]
     }
 
-    let normalizedQuery = mergeConditions(query, this.mergeFilter || {})
-
-    let orderBy: string[] | OrderBy[] = this.orderByKeys;
-    if (!orderBy || orderBy.length === 0) {
-      orderBy = [
-        {
-          field: 'started',
-          desc: true,
-        },
-        {
-          field: 'ended',
-          desc: true,
-        }
-      ]
-    }
-
-    return {
-      select: select,
-      query: normalizedQuery,
-      groupBy: this.groupByKeys,
-      orderBy: orderBy,
+    return buildViewerQuery({
+      select,
+      query,
+      mergeFilter: this.mergeFilter,
+      groupByKeys: this.groupByKeys,
+      orderByKeys: this.orderByKeys,
       textSearch,
       databases: this.databases,
-    }
+    })
   }
 
   /** @private Updates the current model form all values emited by the tag-bar. */
