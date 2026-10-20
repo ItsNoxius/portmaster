@@ -386,7 +386,27 @@ export class SfngNetqueryViewer implements OnInit, OnDestroy, AfterViewInit {
    * the user (like forcing a "profile" filter for the App View)
    */
   @Input()
-  mergeFilter: Condition | null = null;
+  set mergeFilter(v: Condition | null) {
+    const changed = JSON.stringify(v) !== JSON.stringify(this._mergeFilter);
+    this._mergeFilter = v;
+
+    // The viewer may be re-used for a different filter (like the App View
+    // switching to another app), so search again once the new filter is set.
+    if (changed && this.initialized) {
+      // charts are otherwise kept until the new ones load, but they belong
+      // to a different filter now.
+      this.connectionChartData = [];
+      this.bwChartData = [];
+      this.performSearch();
+    }
+  }
+  get mergeFilter() {
+    return this._mergeFilter;
+  }
+  private _mergeFilter: Condition | null = null;
+
+  /** @private Whether ngOnInit has run, searches before that are triggered by ngOnInit itself. */
+  private initialized = false;
 
   /** The filter preset that will be used if no filter is configured otherwise */
   @Input()
@@ -658,7 +678,6 @@ export class SfngNetqueryViewer implements OnInit, OnDestroy, AfterViewInit {
         this.totalConnCount = result.response?.totalConnCount[0]?.totalConnCount || 0;
         this.totalResultCount = result.response.totalCount;
         this.lastReload = new Date();
-        this.lastSearchTime = this.lastReload.getTime();
         this.lastReloadTickerForceUpdate$.next();
         this.loading = false;
 
@@ -695,6 +714,9 @@ export class SfngNetqueryViewer implements OnInit, OnDestroy, AfterViewInit {
 
             this.cdr.markForCheck();
           })
+
+        // only new searches count for debouncing, not background revalidations.
+        this.lastSearchTime = this.lastReload.getTime();
 
         // reset the paginator with the new total result count and
         // open the first page.
@@ -763,6 +785,8 @@ export class SfngNetqueryViewer implements OnInit, OnDestroy, AfterViewInit {
 
     // we might get new search values from our helper service
     // in case the user "SHIFT-Clicks" a SfngAddToFilter directive.
+    this.initialized = true;
+
     this.helper.onFieldsAdded()
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe(fields => this.onFieldsParsed(fields))

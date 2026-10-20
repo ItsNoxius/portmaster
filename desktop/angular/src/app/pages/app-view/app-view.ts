@@ -4,7 +4,6 @@ import {
   DestroyRef,
   OnDestroy,
   OnInit,
-  ViewChild,
   inject,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
@@ -56,7 +55,6 @@ import {
 } from 'src/app/shared/config/export-dialog/export-dialog.component';
 import { SaveSettingEvent } from 'src/app/shared/config/generic-setting/generic-setting';
 import { ExpertiseService } from 'src/app/shared/expertise';
-import { SfngNetqueryViewer } from 'src/app/shared/netquery';
 import { EditProfileDialog } from './../../shared/edit-profile-dialog/edit-profile-dialog';
 
 @Component({
@@ -66,9 +64,6 @@ import { EditProfileDialog } from './../../shared/edit-profile-dialog/edit-profi
 })
 export class AppViewComponent implements OnInit, OnDestroy {
   private readonly integration = inject(INTEGRATION_SERVICE);
-
-  @ViewChild(SfngNetqueryViewer)
-  netqueryViewer?: SfngNetqueryViewer;
 
   destroyRef = inject(DestroyRef);
   spn = inject(SPNService);
@@ -464,10 +459,6 @@ export class AppViewComponent implements OnInit, OnDestroy {
           const diff =
             now - new Date(this.appProfile.WarningLastUpdated).getTime();
           this.displayWarning = diff < 1000 * 60 * 60 * 24 * 7;
-        }
-
-        if (!!this.netqueryViewer && this._loading) {
-          this.netqueryViewer.performSearch();
         }
 
         this._loading = false;
